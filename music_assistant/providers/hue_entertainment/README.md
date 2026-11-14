@@ -11,9 +11,9 @@ Sendspin Server (PushStream → group visualizer/color roles → FFT/spectrum + 
 Bridge visualizer + color roles (features keyed to playback timestamp)
        │
        ▼ (frame / beats / color callbacks)
-HueAudioAnalyzer (queues by timestamp; bass beat detection, color cycling, energy pulse)   ← this provider
+AudioAnalyzer (queues by timestamp; bass beat detection, color cycling, energy pulse)   ← light_sync (shared)
        │
-       ▼ (30 Hz render loop drains at server-clock + Hue-latency lead → LightColorCommand frames)
+       ▼ (30 Hz render loop drains at server-clock + Hue-latency lead → LightColor frames → LightColorCommand)
 LightTarget (targets.py)   ← this provider
        │
        ├─ HueAreaTarget → EntertainmentSession → HueDtlsStreamer (DTLS 1.2 PSK + HueStream v2)   ← hue-entertainment lib
@@ -53,6 +53,7 @@ Music Assistant runs one Zigbee stream at a time: a start takes it over from the
 | **Ambient** | Colour cycling only, no brightness modulation — relaxing, smooth transitions. |
 | **Flashing** | Brightness pulse on every beat, stronger on downbeats. |
 | **Energetic** | Large brightness swings on hits plus fast palette rotation. |
+| **Party** | Ignores the album palette: vivid random colours, a different one per light, changing every few beats. |
 
 ## Hue streaming layer
 
@@ -64,8 +65,10 @@ library's `EntertainmentSession` facade, which opens the stream on demand, runs 
 blocking DTLS handshake in an executor, and enforces the bridge's single-active-stream
 constraint.
 
-Only the Sendspin-specific glue lives here: the visualizer client wiring (`bridge.py`),
-the light targets (`targets.py`, `zigbee.py`) and the audio-to-color analyzer (`analyzer.py`).
+Only the Sendspin-specific glue lives here: the visualizer client wiring (`bridge.py`)
+and the light targets (`targets.py`, `zigbee.py`). The audio-to-color analyzer lives in the
+shared `light_sync` package (no manifest), so other light providers reuse the same palette and
+beat logic; this provider only caps its palette (`PALETTE_CEILING`) to stay inside the Hue gamut.
 
 ## File Structure
 
@@ -77,7 +80,6 @@ hue_entertainment/
 ├── bridge.py                  Sendspin visualizer client → analyzer → LightTarget
 ├── targets.py                 Hue bridge area and ZHA lamp targets
 ├── zigbee.py                  ZHA lookups through the Home Assistant plugin
-├── analyzer.py                Bass beat detection, color cycling, effect modes
 ├── constants.py               MA config keys + Sendspin spectrum request config
 └── manifest.json              Plugin manifest (requires hue-entertainment)
 ```
@@ -93,7 +95,7 @@ The setup flow asks for the backend (`backend`: `hue_bridge` or `zha`), then pai
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `brightness` | Integer | 100 | Overall light brightness (0-100) |
-| `color_mode` | String | smooth | Visualization mode (smooth / ambient / flashing / energetic) |
+| `color_mode` | String | smooth | Visualization mode (smooth / ambient / flashing / energetic / party) |
 | `hue_latency_ms` | Integer | 20 | Lead time lights render ahead of the playhead (0-3000) |
 
 ## Quick Setup
